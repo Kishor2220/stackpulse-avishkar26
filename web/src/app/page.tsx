@@ -2,8 +2,10 @@ import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import { logout } from "./auth/actions";
-import { MonitorManager, type Monitor } from "./monitor-manager";
+import { DashboardRefresh } from "./dashboard-refresh";
+import { MonitorManager } from "./monitor-manager";
 import { createClient } from "@/lib/supabase/server";
+import type { DashboardMonitor, MonitorCheck } from "@/lib/monitor-health";
 
 type IconName = "activity" | "bell" | "chevron" | "clock" | "globe" | "heart" | "layout" | "menu" | "pulse" | "settings" | "shield";
 
@@ -47,12 +49,48 @@ async function Dashboard() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
+  const observedAt = new Date().toISOString();
 
   const { data, error } = await supabase.from("monitors")
     .select("id, name, url, expected_http_status, check_interval_seconds, is_active")
     .eq("owner_id", user.id)
     .order("created_at", { ascending: false });
-  const monitors = (data ?? []) as Monitor[];
+  const monitorRows = (data ?? []) as Omit<DashboardMonitor, "latestCheck" | "checks24h">[];
+  const monitorIds = monitorRows.map((monitor) => monitor.id);
+  const since = new Date(Date.parse(observedAt) - 24 * 60 * 60 * 1_000).toISOString();
+  let checks24h: MonitorCheck[] = [];
+  let checksError = error;
+  const latestByMonitor = new Map<string, MonitorCheck | null>();
+
+  if (monitorIds.length > 0) {
+    const history = await supabase.from("monitor_checks")
+      .select("id, monitor_id, checked_at, http_status, response_latency_ms, is_success, tls_expires_at")
+      .in("monitor_id", monitorIds)
+      .gte("checked_at", since)
+      .order("checked_at", { ascending: true });
+    checks24h = (history.data ?? []) as MonitorCheck[];
+    checksError ||= history.error;
+
+    const latestResults = await Promise.all(monitorIds.map(async (monitorId) => {
+      const result = await supabase.from("monitor_checks")
+        .select("id, monitor_id, checked_at, http_status, response_latency_ms, is_success, tls_expires_at")
+        .eq("monitor_id", monitorId)
+        .order("checked_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return { monitorId, data: result.data as MonitorCheck | null, error: result.error };
+    }));
+    for (const result of latestResults) {
+      latestByMonitor.set(result.monitorId, result.data);
+      checksError ||= result.error;
+    }
+  }
+
+  const monitors: DashboardMonitor[] = monitorRows.map((monitor) => ({
+    ...monitor,
+    latestCheck: latestByMonitor.get(monitor.id) ?? null,
+    checks24h: checks24h.filter((check) => check.monitor_id === monitor.id),
+  }));
 
   return <main className="min-h-screen bg-[#07111b] text-slate-100">
     <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 border-r border-white/[0.07] bg-[#091620] p-5 lg:flex lg:flex-col">
@@ -62,10 +100,10 @@ async function Dashboard() {
     </aside>
     <div className="lg:pl-64">
       <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-white/[0.07] bg-[#07111b]/90 px-5 backdrop-blur lg:px-8"><div className="flex items-center gap-3 lg:hidden"><div className="grid size-8 place-items-center rounded-lg bg-cyan-400 text-[#06121a]"><Icon name="pulse" className="size-4" /></div><span className="font-semibold">StackPulse</span></div><button className="hidden items-center gap-2 rounded-lg border border-white/[0.1] px-3 py-2 text-xs text-slate-400 sm:flex" type="button"><Icon name="globe" className="size-3.5" />All monitors <Icon name="chevron" className="size-3.5" /></button><button className="text-slate-400 lg:hidden" type="button" aria-label="Open navigation"><Icon name="menu" className="size-5" /></button><div className="flex items-center gap-3"><button className="hidden rounded-lg p-2 text-slate-400 hover:bg-white/5 sm:block" type="button" aria-label="Notifications"><Icon name="bell" className="size-5" /></button><form action={logout}><button className="grid size-8 place-items-center rounded-full bg-gradient-to-br from-cyan-300 to-blue-500 text-xs font-bold text-slate-950" type="submit" title="Sign out" aria-label={`Sign out ${user.email ?? ""}`}>SP</button></form></div></header>
-      <section className="mx-auto max-w-7xl px-5 py-8 sm:px-8 lg:py-10"><div><p className="text-sm font-medium text-cyan-300">Monitoring workspace</p><h1 className="mt-1 text-2xl font-semibold tracking-tight text-white sm:text-3xl">Overview</h1><p className="mt-2 text-sm text-slate-400">A clear view of your endpoint and user-trust signals.</p></div>
-        {error && <p className="mt-5 rounded-lg border border-red-400/20 bg-red-400/10 px-3 py-2.5 text-sm text-red-200">Saved monitors could not be loaded. Please refresh and try again.</p>}
-        <div className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{metricCards.map((metric) => <article key={metric.label} className="rounded-xl border border-white/[0.08] bg-[#0b1a26] p-4"><div className="flex items-start justify-between"><div className="grid size-9 place-items-center rounded-lg bg-cyan-400/10 text-cyan-300"><Icon name={metric.icon} className="size-[18px]" /></div><span className="rounded-md bg-slate-800 px-2 py-1 text-[11px] font-medium text-slate-400">No data yet</span></div><h2 className="mt-5 text-sm font-medium text-slate-300">{metric.label}</h2><p className="mt-1 text-sm text-slate-500">Awaiting first check</p></article>)}</div>
-        <MonitorManager monitors={monitors} />
+      <section className="mx-auto max-w-7xl px-5 py-8 sm:px-8 lg:py-10"><DashboardRefresh /><div><p className="text-sm font-medium text-cyan-300">Monitoring workspace</p><h1 className="mt-1 text-2xl font-semibold tracking-tight text-white sm:text-3xl">Overview</h1><p className="mt-2 text-sm text-slate-400">A clear view of your endpoint and user-trust signals. Refreshes about every 30 seconds.</p></div>
+        {checksError && <p className="mt-5 rounded-lg border border-red-400/20 bg-red-400/10 px-3 py-2.5 text-sm text-red-200">Monitoring data could not be loaded. Existing monitor settings are still available.</p>}
+        <div className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{metricCards.map((metric) => <article key={metric.label} className="rounded-xl border border-white/[0.08] bg-[#0b1a26] p-4"><div className="flex items-start justify-between"><div className="grid size-9 place-items-center rounded-lg bg-cyan-400/10 text-cyan-300"><Icon name={metric.icon} className="size-[18px]" /></div><span className="rounded-md bg-slate-800 px-2 py-1 text-[11px] font-medium text-slate-400">Per monitor</span></div><h2 className="mt-5 text-sm font-medium text-slate-300">{metric.label}</h2><p className="mt-1 text-sm text-slate-500">Actual results shown below</p></article>)}</div>
+        <MonitorManager monitors={monitors} observedAt={observedAt} />
         <section className="mt-9" aria-labelledby="trust-heading"><div className="flex items-center justify-between"><div><h2 id="trust-heading" className="text-base font-semibold text-white">TrustPulse monitoring health</h2><p className="mt-1 text-sm text-slate-500">The health of StackPulse&apos;s own monitoring pipeline.</p></div><span className="rounded-full border border-slate-700 bg-slate-800/60 px-2.5 py-1 text-xs font-medium text-slate-400">No data yet</span></div><div className="mt-4 grid gap-4 lg:grid-cols-5"><article className="rounded-xl border border-white/[0.08] bg-[#0b1a26] p-5 lg:col-span-3"><div className="flex items-start justify-between"><div><h3 className="font-medium text-white">Monitoring coverage</h3><p className="mt-1 text-sm text-slate-500">Recent check activity across your workspace.</p></div><Icon name="shield" className="size-5 text-cyan-300" /></div><div className="mt-8 flex h-28 items-end gap-1.5 opacity-40" aria-label="No monitoring data">{[18, 31, 23, 46, 35, 56, 42, 28].map((height) => <div key={height} className="flex-1 rounded-t bg-slate-600" style={{ height: `${height}%` }} />)}</div><p className="mt-3 text-xs text-slate-500">No check history available</p></article><article className="rounded-xl border border-white/[0.08] bg-[#0b1a26] p-5 lg:col-span-2"><div className="flex items-start justify-between"><div><h3 className="font-medium text-white">Incidents</h3><p className="mt-1 text-sm text-slate-500">Open and recent monitor incidents.</p></div><Icon name="bell" className="size-5 text-cyan-300" /></div><div className="mt-8 rounded-lg border border-dashed border-white/[0.12] px-4 py-5 text-center"><p className="text-sm font-medium text-slate-400">No incident data yet</p><p className="mt-1 text-xs leading-5 text-slate-500">Incidents will be recorded after monitoring begins.</p></div></article></div></section>
       </section>
     </div>
