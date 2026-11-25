@@ -2,6 +2,8 @@ import cron from "node-cron";
 import { createClient } from "@supabase/supabase-js";
 import { checkEndpoint, checkLogLine } from "./checker.js";
 import { loadConfig } from "./config.js";
+import { IncidentManager, SimulatedIncidentNotifier } from "./incident-manager.js";
+import { createSupabaseIncidentRepository } from "./incident-repository.js";
 import { MonitorScheduler, type ActiveMonitor } from "./scheduler.js";
 
 async function main() {
@@ -9,6 +11,10 @@ async function main() {
   const supabase = createClient(config.supabaseUrl, config.serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
   });
+  const incidents = new IncidentManager(
+    createSupabaseIncidentRepository(supabase),
+    new SimulatedIncidentNotifier(),
+  );
 
   async function loadActiveMonitors(): Promise<ActiveMonitor[]> {
     const { data, error } = await supabase.from("monitors")
@@ -44,6 +50,7 @@ async function main() {
     });
     if (error) throw new Error("Could not record monitor check.");
     console.info(checkLogLine(monitor.id, monitor.url, result));
+    await incidents.observe(monitor.id, result);
   }
 
   const scheduler = new MonitorScheduler({ loadActiveMonitors, checkMonitor });
