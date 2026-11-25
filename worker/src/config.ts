@@ -6,6 +6,11 @@ export type WorkerConfig = {
   workerId: string;
   timeoutMs: number;
   maxResponseBytes: number;
+  databaseRetryAttempts: number;
+  databaseRetryBaseMs: number;
+  emailPollMs: number;
+  resendApiKey?: string;
+  resendFromEmail?: string;
 };
 
 function positiveInteger(value: string | undefined, fallback: number, variable: string) {
@@ -25,5 +30,10 @@ export function loadConfig(): WorkerConfig {
     workerId: process.env.WORKER_ID as string,
     timeoutMs: positiveInteger(process.env.WORKER_TIMEOUT_MS, 10_000, "WORKER_TIMEOUT_MS"),
     maxResponseBytes: positiveInteger(process.env.WORKER_MAX_RESPONSE_BYTES, 1_048_576, "WORKER_MAX_RESPONSE_BYTES"),
+    databaseRetryAttempts: positiveInteger(process.env.WORKER_DATABASE_RETRY_ATTEMPTS, 3, "WORKER_DATABASE_RETRY_ATTEMPTS"),
+    databaseRetryBaseMs: positiveInteger(process.env.WORKER_DATABASE_RETRY_BASE_MS, 200, "WORKER_DATABASE_RETRY_BASE_MS"),
+    emailPollMs: positiveInteger(process.env.WORKER_EMAIL_POLL_MS, 15_000, "WORKER_EMAIL_POLL_MS"),
+    resendApiKey: process.env.RESEND_API_KEY,
+    resendFromEmail: process.env.RESEND_FROM_EMAIL,
   };
 }

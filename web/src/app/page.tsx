@@ -5,6 +5,7 @@ import { logout } from "./auth/actions";
 import { DashboardRefresh } from "./dashboard-refresh";
 import { IncidentsPanel, type DashboardIncident } from "./incidents-panel";
 import { MonitorManager } from "./monitor-manager";
+import { NotificationsPanel, type DashboardNotification } from "./notifications-panel";
 import { TrustPulsePanel } from "./trustpulse-panel";
 import { createClient } from "@/lib/supabase/server";
 import type { DashboardMonitor, MonitorCheck } from "@/lib/monitor-health";
@@ -104,6 +105,12 @@ async function Dashboard() {
     incidents = (incidentResult.data ?? []) as DashboardIncident[];
     checksError ||= incidentResult.error;
   }
+  const notificationResult = await supabase.from("notifications")
+    .select("id, monitor_id, incident_id, type, title, body, read_at, created_at")
+    .eq("owner_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  const notifications = (notificationResult.data ?? []) as DashboardNotification[];
   const trustPulseResult = await supabase.rpc("get_trustpulse_health");
   const trustPulse: TrustPulseData | null = trustPulseResult.error ? null : parseTrustPulseData(trustPulseResult.data);
   const trustPulseError = Boolean(trustPulseResult.error) || trustPulse === null;
@@ -116,12 +123,13 @@ async function Dashboard() {
       <div className="mt-auto border-t border-white/[0.07] pt-5"><a href="#" className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-slate-400 hover:bg-white/5 hover:text-slate-200"><Icon name="settings" className="size-[18px]" />Settings</a><div className="mt-5 rounded-xl border border-white/[0.07] bg-white/[0.025] p-3.5"><p className="text-xs font-medium text-slate-300">Ready when you are</p><p className="mt-1 text-xs leading-5 text-slate-500">Create a monitor to start collecting status data.</p></div></div>
     </aside>
     <div className="lg:pl-64">
-      <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-white/[0.07] bg-[#07111b]/90 px-5 backdrop-blur lg:px-8"><div className="flex items-center gap-3 lg:hidden"><div className="grid size-8 place-items-center rounded-lg bg-cyan-400 text-[#06121a]"><Icon name="pulse" className="size-4" /></div><span className="font-semibold">StackPulse</span></div><button className="hidden items-center gap-2 rounded-lg border border-white/[0.1] px-3 py-2 text-xs text-slate-400 sm:flex" type="button"><Icon name="globe" className="size-3.5" />All monitors <Icon name="chevron" className="size-3.5" /></button><button className="text-slate-400 lg:hidden" type="button" aria-label="Open navigation"><Icon name="menu" className="size-5" /></button><div className="flex items-center gap-3"><a className="hidden text-xs font-medium text-cyan-300 hover:text-cyan-200 sm:block" href="/status">Public status</a><button className="hidden rounded-lg p-2 text-slate-400 hover:bg-white/5 sm:block" type="button" aria-label="Notifications"><Icon name="bell" className="size-5" /></button><form action={logout}><button className="grid size-8 place-items-center rounded-full bg-gradient-to-br from-cyan-300 to-blue-500 text-xs font-bold text-slate-950" type="submit" title="Sign out" aria-label={`Sign out ${user.email ?? ""}`}>SP</button></form></div></header>
+      <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-white/[0.07] bg-[#07111b]/90 px-5 backdrop-blur lg:px-8"><div className="flex items-center gap-3 lg:hidden"><div className="grid size-8 place-items-center rounded-lg bg-cyan-400 text-[#06121a]"><Icon name="pulse" className="size-4" /></div><span className="font-semibold">StackPulse</span></div><button className="hidden items-center gap-2 rounded-lg border border-white/[0.1] px-3 py-2 text-xs text-slate-400 sm:flex" type="button"><Icon name="globe" className="size-3.5" />All monitors <Icon name="chevron" className="size-3.5" /></button><button className="text-slate-400 lg:hidden" type="button" aria-label="Open navigation"><Icon name="menu" className="size-5" /></button><div className="flex items-center gap-3"><a className="hidden text-xs font-medium text-cyan-300 hover:text-cyan-200 sm:block" href="/status">Public status</a><a className="relative hidden rounded-lg p-2 text-slate-400 hover:bg-white/5 sm:block" href="#notifications" aria-label="View notifications"><Icon name="bell" className="size-5" />{notifications.filter((notification) => !notification.read_at).length > 0 && <span className="absolute right-1 top-1 size-1.5 rounded-full bg-cyan-300" />}</a><form action={logout}><button className="grid size-8 place-items-center rounded-full bg-gradient-to-br from-cyan-300 to-blue-500 text-xs font-bold text-slate-950" type="submit" title="Sign out" aria-label={`Sign out ${user.email ?? ""}`}>SP</button></form></div></header>
       <section className="mx-auto max-w-7xl px-5 py-8 sm:px-8 lg:py-10"><DashboardRefresh /><div><p className="text-sm font-medium text-cyan-300">Monitoring workspace</p><h1 className="mt-1 text-2xl font-semibold tracking-tight text-white sm:text-3xl">Overview</h1><p className="mt-2 text-sm text-slate-400">A clear view of your endpoint and user-trust signals. Refreshes about every 30 seconds.</p></div>
         {checksError && <p className="mt-5 rounded-lg border border-red-400/20 bg-red-400/10 px-3 py-2.5 text-sm text-red-200">Monitoring data could not be loaded. Existing monitor settings are still available.</p>}
         <div className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{metricCards.map((metric) => <article key={metric.label} className="rounded-xl border border-white/[0.08] bg-[#0b1a26] p-4"><div className="flex items-start justify-between"><div className="grid size-9 place-items-center rounded-lg bg-cyan-400/10 text-cyan-300"><Icon name={metric.icon} className="size-[18px]" /></div><span className="rounded-md bg-slate-800 px-2 py-1 text-[11px] font-medium text-slate-400">Per monitor</span></div><h2 className="mt-5 text-sm font-medium text-slate-300">{metric.label}</h2><p className="mt-1 text-sm text-slate-500">Actual results shown below</p></article>)}</div>
         <MonitorManager monitors={monitors} observedAt={observedAt} />
         <TrustPulsePanel data={trustPulse} observedAt={observedAt} error={trustPulseError} />
+        <section className="mt-4"><NotificationsPanel notifications={notifications} monitorNames={monitorNames} error={Boolean(notificationResult.error)} /></section>
         <section className="mt-4 grid gap-4 lg:grid-cols-5"><IncidentsPanel incidents={incidents} monitorNames={monitorNames} /></section>
       </section>
     </div>

@@ -10,6 +10,7 @@ type SchedulerDependencies = {
   loadActiveMonitors: () => Promise<ActiveMonitor[]>;
   checkMonitor: (monitor: ActiveMonitor) => Promise<void>;
   refreshMs?: number;
+  onMissedSchedule?: (monitor: ActiveMonitor, delayMs: number) => void;
 };
 
 export class MonitorScheduler {
@@ -18,6 +19,7 @@ export class MonitorScheduler {
   private monitors: ActiveMonitor[] = [];
   private lastRefreshAt = Number.NEGATIVE_INFINITY;
   private readonly refreshMs: number;
+  private idleResolvers: Array<() => void> = [];
 
   constructor(private readonly dependencies: SchedulerDependencies) {
     this.refreshMs = dependencies.refreshMs ?? 15_000;
@@ -33,6 +35,13 @@ export class MonitorScheduler {
 
     const due = this.monitors.filter((monitor) => {
       const lastStarted = this.lastStartedAt.get(monitor.id);
+      if (lastStarted !== undefined && !this.inFlight.has(monitor.id)) {
+        const elapsed = now - lastStarted;
+        const intervalMs = monitor.check_interval_seconds * 1_000;
+        // A delay longer than 1.5 intervals means at least one scheduled slot
+        // was missed. We report it but never synthesize a successful check.
+        if (elapsed > intervalMs * 1.5) this.dependencies.onMissedSchedule?.(monitor, elapsed - intervalMs);
+      }
       return !this.inFlight.has(monitor.id) && (lastStarted === undefined || now - lastStarted >= monitor.check_interval_seconds * 1_000);
     });
 
@@ -43,7 +52,18 @@ export class MonitorScheduler {
         await this.dependencies.checkMonitor(monitor);
       } finally {
         this.inFlight.delete(monitor.id);
+        if (this.inFlight.size === 0) {
+          const resolvers = this.idleResolvers;
+          this.idleResolvers = [];
+          resolvers.forEach((resolve) => resolve());
+        }
       }
     }));
+  }
+
+  /** Resolves once checks already started by this process have finished. */
+  async waitForIdle() {
+    if (this.inFlight.size === 0) return;
+    await new Promise<void>((resolve) => this.idleResolvers.push(resolve));
   }
 }

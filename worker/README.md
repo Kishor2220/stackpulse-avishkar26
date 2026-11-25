@@ -15,8 +15,13 @@ to `web/.env.local`, browser code, logs, or CI output.
 
 The scheduler reloads active monitors every 15 seconds, evaluates due checks
 every second, honors the configured 30/60/120-second interval, and prevents
-overlapping checks for a monitor. It writes a heartbeat at startup and then
-every minute.
+overlapping checks for a monitor within this worker process. It writes a
+heartbeat at startup and then every minute. Supabase reads/writes retry with
+bounded exponential backoff (three attempts by default); a failed retry never
+creates a synthetic successful check. Schedule gaps are logged explicitly.
+
+Run this as an always-on process with restart-on-failure and retained logs.
+`SIGINT`/`SIGTERM` stop new schedules and wait for started checks to finish.
 
 ## Security model and current limits
 
@@ -27,6 +32,6 @@ and certificate verification. Redirects are not followed because the worker
 uses Node's native HTTP(S) client directly.
 
 This is a hackathon-grade baseline. A production worker should add outbound
-network egress controls, per-project quotas, retry/backoff policies, distributed
-locking for multiple worker instances, observability, and an independent policy
-for all newly introduced destination types.
+network egress controls, per-project quotas, distributed locking for multiple
+worker instances, observability, and an independent policy for all newly
+introduced destination types.
