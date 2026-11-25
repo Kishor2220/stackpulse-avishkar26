@@ -29,6 +29,19 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
+## Monitoring worker security
+
+The monitor form rejects local/internal hostnames and URLs that currently resolve
+to private or reserved IP addresses. This is only an admission check, not a
+complete SSRF boundary. Before endpoint checks are implemented, the worker must:
+
+- Resolve the hostname immediately before every connection and reject private,
+  loopback, link-local, multicast, reserved, and cloud-metadata addresses.
+- Apply the same validation to every redirect target and cap redirect hops.
+- Pin or verify the resolved address used for the connection to prevent DNS
+  rebinding between validation and connection.
+- Disallow non-HTTP(S) schemes, proxy bypasses, and URLs with embedded credentials.
+
 ## Deploy on Vercel
 
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
