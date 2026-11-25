@@ -5,8 +5,10 @@ import { logout } from "./auth/actions";
 import { DashboardRefresh } from "./dashboard-refresh";
 import { IncidentsPanel, type DashboardIncident } from "./incidents-panel";
 import { MonitorManager } from "./monitor-manager";
+import { TrustPulsePanel } from "./trustpulse-panel";
 import { createClient } from "@/lib/supabase/server";
 import type { DashboardMonitor, MonitorCheck } from "@/lib/monitor-health";
+import { parseTrustPulseData, type TrustPulseData } from "@/lib/trustpulse-health";
 
 type IconName = "activity" | "bell" | "chevron" | "clock" | "globe" | "heart" | "layout" | "menu" | "pulse" | "settings" | "shield";
 
@@ -102,6 +104,9 @@ async function Dashboard() {
     incidents = (incidentResult.data ?? []) as DashboardIncident[];
     checksError ||= incidentResult.error;
   }
+  const trustPulseResult = await supabase.rpc("get_trustpulse_health");
+  const trustPulse: TrustPulseData | null = trustPulseResult.error ? null : parseTrustPulseData(trustPulseResult.data);
+  const trustPulseError = Boolean(trustPulseResult.error) || trustPulse === null;
   const monitorNames = new Map(monitorRows.map((monitor) => [monitor.id, monitor.name]));
 
   return <main className="min-h-screen bg-[#07111b] text-slate-100">
@@ -116,7 +121,8 @@ async function Dashboard() {
         {checksError && <p className="mt-5 rounded-lg border border-red-400/20 bg-red-400/10 px-3 py-2.5 text-sm text-red-200">Monitoring data could not be loaded. Existing monitor settings are still available.</p>}
         <div className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{metricCards.map((metric) => <article key={metric.label} className="rounded-xl border border-white/[0.08] bg-[#0b1a26] p-4"><div className="flex items-start justify-between"><div className="grid size-9 place-items-center rounded-lg bg-cyan-400/10 text-cyan-300"><Icon name={metric.icon} className="size-[18px]" /></div><span className="rounded-md bg-slate-800 px-2 py-1 text-[11px] font-medium text-slate-400">Per monitor</span></div><h2 className="mt-5 text-sm font-medium text-slate-300">{metric.label}</h2><p className="mt-1 text-sm text-slate-500">Actual results shown below</p></article>)}</div>
         <MonitorManager monitors={monitors} observedAt={observedAt} />
-        <section className="mt-9" aria-labelledby="trust-heading"><div className="flex items-center justify-between"><div><h2 id="trust-heading" className="text-base font-semibold text-white">TrustPulse monitoring health</h2><p className="mt-1 text-sm text-slate-500">The health of StackPulse&apos;s own monitoring pipeline.</p></div><span className="rounded-full border border-slate-700 bg-slate-800/60 px-2.5 py-1 text-xs font-medium text-slate-400">No data yet</span></div><div className="mt-4 grid gap-4 lg:grid-cols-5"><article className="rounded-xl border border-white/[0.08] bg-[#0b1a26] p-5 lg:col-span-3"><div className="flex items-start justify-between"><div><h3 className="font-medium text-white">Monitoring coverage</h3><p className="mt-1 text-sm text-slate-500">Recent check activity across your workspace.</p></div><Icon name="shield" className="size-5 text-cyan-300" /></div><div className="mt-8 flex h-28 items-end gap-1.5 opacity-40" aria-label="No monitoring data">{[18, 31, 23, 46, 35, 56, 42, 28].map((height) => <div key={height} className="flex-1 rounded-t bg-slate-600" style={{ height: `${height}%` }} />)}</div><p className="mt-3 text-xs text-slate-500">No check history available</p></article><IncidentsPanel incidents={incidents} monitorNames={monitorNames} /></div></section>
+        <TrustPulsePanel data={trustPulse} observedAt={observedAt} error={trustPulseError} />
+        <section className="mt-4 grid gap-4 lg:grid-cols-5"><IncidentsPanel incidents={incidents} monitorNames={monitorNames} /></section>
       </section>
     </div>
   </main>;

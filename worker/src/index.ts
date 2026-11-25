@@ -6,6 +6,9 @@ import { IncidentManager, SimulatedIncidentNotifier } from "./incident-manager.j
 import { createSupabaseIncidentRepository } from "./incident-repository.js";
 import { MonitorScheduler, type ActiveMonitor } from "./scheduler.js";
 
+export const HEARTBEAT_INTERVAL_SECONDS = 60;
+export const HEARTBEAT_CRON = "0 * * * * *";
+
 async function main() {
   const config = loadConfig();
   const supabase = createClient(config.supabaseUrl, config.serviceRoleKey, {
@@ -72,8 +75,8 @@ async function main() {
   await guardedHeartbeat();
   await guardedTick();
   cron.schedule("* * * * * *", () => void guardedTick());
-  cron.schedule("0 * * * * *", () => void guardedHeartbeat());
-  console.info(`[worker] ${config.workerId} started; checks use pinned public IP connections and no redirects.`);
+  cron.schedule(HEARTBEAT_CRON, () => void guardedHeartbeat());
+  console.info(`[worker] ${config.workerId} started; heartbeats run every ${HEARTBEAT_INTERVAL_SECONDS}s; checks use pinned public IP connections and no redirects.`);
 }
 
 main().catch((error) => {
