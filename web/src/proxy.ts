@@ -1,7 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const authRoutes = new Set(["/login", "/register", "/auth/confirm"]);
+const publicRoutes = new Set(["/login", "/register", "/auth/confirm", "/status"]);
+const authEntryRoutes = new Set(["/login", "/register"]);
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -28,16 +29,16 @@ export async function proxy(request: NextRequest) {
   });
 
   const { data: claims } = await supabase.auth.getClaims();
-  const isAuthRoute = authRoutes.has(request.nextUrl.pathname);
+  const isPublicRoute = publicRoutes.has(request.nextUrl.pathname);
 
-  if (!claims && !isAuthRoute) {
+  if (!claims && !isPublicRoute) {
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
     loginUrl.searchParams.set("next", request.nextUrl.pathname);
     return NextResponse.redirect(loginUrl);
   }
 
-  if (claims && isAuthRoute && request.nextUrl.pathname !== "/auth/confirm") {
+  if (claims && authEntryRoutes.has(request.nextUrl.pathname)) {
     const dashboardUrl = request.nextUrl.clone();
     dashboardUrl.pathname = "/";
     dashboardUrl.search = "";

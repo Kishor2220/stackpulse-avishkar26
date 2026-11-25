@@ -22,6 +22,7 @@ function readMonitorInput(formData: FormData) {
     expectedHttpStatus: String(formData.get("expectedHttpStatus") ?? "200"),
     checkIntervalSeconds: String(formData.get("checkIntervalSeconds") ?? "60"),
     isActive: formData.get("isActive") === "on",
+    isPublic: formData.get("isPublic") === "on",
   };
 }
 
@@ -63,6 +64,7 @@ export async function createMonitor(previousState: MonitorActionState = initialM
     expected_http_status: parsed.data.expectedHttpStatus,
     check_interval_seconds: parsed.data.checkIntervalSeconds,
     is_active: parsed.data.isActive,
+    is_public: parsed.data.isPublic,
   });
 
   if (error) return { error: "We could not save this monitor. Please try again." };
@@ -91,6 +93,7 @@ export async function updateMonitor(previousState: MonitorActionState = initialM
     expected_http_status: parsed.data.expectedHttpStatus,
     check_interval_seconds: parsed.data.checkIntervalSeconds,
     is_active: parsed.data.isActive,
+    is_public: parsed.data.isPublic,
     updated_at: new Date().toISOString(),
   }).eq("id", id.data).eq("owner_id", user.id).select("id").maybeSingle();
 

@@ -75,6 +75,7 @@ export const monitorInputSchema = z.object({
   expectedHttpStatus: z.coerce.number().int().min(100, "Use an HTTP status from 100 to 599.").max(599, "Use an HTTP status from 100 to 599."),
   checkIntervalSeconds: z.coerce.number().int().refine((value) => [30, 60, 120].includes(value), "Choose 30, 60, or 120 seconds."),
   isActive: z.boolean(),
+  isPublic: z.boolean(),
 }).superRefine(async (value, context) => {
   let parsed: URL;
   try {
