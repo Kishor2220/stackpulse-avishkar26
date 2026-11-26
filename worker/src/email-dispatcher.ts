@@ -8,14 +8,16 @@ export interface EmailDeliveryRepository {
   failed(id: string, workerId: string, category: string, now: Date): Promise<void>;
 }
 export type EmailProvider = { send(message: EmailMessage): Promise<EmailSendResult> };
+export type ProviderFailureLogger = (category: Exclude<EmailSendResult, { accepted: true }> ["category"]) => void;
 
 export class EmailDispatcher {
-  constructor(private readonly repository: EmailDeliveryRepository, private readonly provider: EmailProvider, private readonly workerId: string, private readonly maxAttempts = 5, private readonly leaseMs = 60_000) {}
+  constructor(private readonly repository: EmailDeliveryRepository, private readonly provider: EmailProvider, private readonly workerId: string, private readonly maxAttempts = 5, private readonly leaseMs = 60_000, private readonly onProviderFailure?: ProviderFailureLogger) {}
   async processOne(now = new Date()) {
     const job = await this.repository.claim(this.workerId, now, this.leaseMs);
     if (!job) return false;
     const result = await this.provider.send({ to: job.recipient, subject: job.subject, text: job.text, html: job.html });
     if (result.accepted) { await this.repository.accepted(job.id, this.workerId, result.providerMessageId, now); return true; }
+    this.onProviderFailure?.(result.category);
     if (result.category === "permanent" || result.category === "configuration" || job.attemptCount + 1 >= this.maxAttempts) {
       await this.repository.failed(job.id, this.workerId, result.category, now); return true;
     }

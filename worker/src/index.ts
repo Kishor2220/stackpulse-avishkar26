@@ -8,7 +8,7 @@ import { MonitorScheduler, type ActiveMonitor } from "./scheduler.js";
 import { withRetry } from "./retry.js";
 import { EmailDispatcher } from "./email-dispatcher.js";
 import { ResendEmailProvider } from "./email-provider.js";
-import { createSupabaseEmailDeliveryRepository } from "./supabase-email-delivery-repository.js";
+import { createSupabaseEmailDeliveryRepository, EmailDeliveryRepositoryError } from "./supabase-email-delivery-repository.js";
 
 export const HEARTBEAT_INTERVAL_SECONDS = 60;
 export const HEARTBEAT_CRON = "0 * * * * *";
@@ -26,7 +26,7 @@ async function main() {
     createSupabaseIncidentRepository(supabase, retryDatabase),
     new SimulatedIncidentNotifier(),
   );
-  const emailDispatcher = config.resendApiKey && config.resendFromEmail ? new EmailDispatcher(createSupabaseEmailDeliveryRepository(supabase), new ResendEmailProvider(config.resendApiKey, config.resendFromEmail), config.workerId) : null;
+  const emailDispatcher = config.resendApiKey && config.resendFromEmail ? new EmailDispatcher(createSupabaseEmailDeliveryRepository(supabase), new ResendEmailProvider(config.resendApiKey, config.resendFromEmail), config.workerId, 5, 60_000, (category) => console.warn(`[worker] email provider failure category=${category}`)) : null;
 
   async function loadActiveMonitors(): Promise<ActiveMonitor[]> {
     return retryDatabase(async () => {
@@ -98,7 +98,7 @@ async function main() {
   const guardedEmailPoll = async () => {
     if (!emailDispatcher || shuttingDown || emailPolling) return;
     emailPolling = true;
-    try { while (await emailDispatcher.processOne()) undefined; } catch { console.error("[worker] email dispatcher error."); } finally { emailPolling = false; }
+    try { while (await emailDispatcher.processOne()) undefined; } catch (error) { if (error instanceof EmailDeliveryRepositoryError) console.error(`[worker] email supabase operation=${error.operation} code=${error.code}`); else console.error("[worker] email dispatcher unexpected_error"); } finally { emailPolling = false; }
   };
 
   let shuttingDown = false;
